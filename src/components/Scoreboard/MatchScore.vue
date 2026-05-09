@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { BestOfType } from '@bluebottle_gg/league-broadcast-client';
+import { computed } from 'vue';
+import { useOverlayConfig } from '@/composables/useOverlayConfig';
 
 const props = defineProps<{
     bestOf: BestOfType,
@@ -7,6 +9,14 @@ const props = defineProps<{
     fillColor: string
     mirror?: boolean
 }>()
+
+const { config: overlayConfig } = useOverlayConfig()
+
+const requiredWins = computed(() => {
+    const bestOf = Number(props.bestOf)
+    return overlayConfig.value.scoreboard.matchScoreRequiredWins[String(bestOf)] ??
+        Math.floor(bestOf / 2) + 1
+})
 
 </script>
 
@@ -19,7 +29,7 @@ const props = defineProps<{
         </div>
 
         <div id="scores" class="w-2 flex flex-col gap-1.5" v-if="bestOf !== BestOfType.BestOf1">
-            <div class="flex flex-1 w-full grow border border-white/55 rounded-xs p-px" v-for="i in bestOf" :key="i">
+            <div class="flex flex-1 w-full grow border border-white/55 rounded-xs p-px" v-for="i in requiredWins" :key="i">
                 <div class="grow" :style="{
                     backgroundColor: i <= wins ? fillColor : 'transparent'
                 }"></div>

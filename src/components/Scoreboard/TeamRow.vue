@@ -8,6 +8,7 @@ import Tower from "@/assets/tower.png";
 import { computed, ref, watch } from "vue";
 import FadeTransition from "../../transitions/FadeTransition.vue";
 import { handleImageError, handleImageLoad } from "@/utils/imageUtils";
+import { useOverlayConfig } from "@/composables/useOverlayConfig";
 
 
 const props = defineProps<{
@@ -18,6 +19,7 @@ const props = defineProps<{
 }>()
 
 const client = useClient();
+const { config: overlayConfig } = useOverlayConfig();
 
 const formattedGold = computed(() => {
     const gold = props.team.gold;
@@ -41,16 +43,14 @@ const goldDiffText = computed(() => {
 })
 
 // Hysteresis: show above 500, hide below 300 - prevent flickering
-const SHOW_THRESHOLD = 500;
-const HIDE_THRESHOLD = 300;
 const showGoldDiff = ref(false);
 
 watch(goldDiff, (diff) => {
     if (diff === null || diff <= 0) {
         showGoldDiff.value = false;
-    } else if (diff > SHOW_THRESHOLD) {
+    } else if (diff > overlayConfig.value.scoreboard.teamGoldDiffShowThreshold) {
         showGoldDiff.value = true;
-    } else if (diff < HIDE_THRESHOLD) {
+    } else if (diff < overlayConfig.value.scoreboard.teamGoldDiffHideThreshold) {
         showGoldDiff.value = false;
     }
     // Between HIDE_THRESHOLD and SHOW_THRESHOLD: keep current state

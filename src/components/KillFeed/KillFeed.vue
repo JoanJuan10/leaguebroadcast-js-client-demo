@@ -2,6 +2,7 @@
 import { ref, onUnmounted } from 'vue';
 import { useClient } from '@/client';
 import { useIsInGame } from '@/composables/useIngame';
+import { useOverlayConfig } from '@/composables/useOverlayConfig';
 import { type killFeedEvent } from '@bluebottle_gg/league-broadcast-client';
 import KillFeedEntry from './KillFeedEntry.vue';
 
@@ -9,14 +10,9 @@ interface KillEntry extends killFeedEvent {
     id: number;
 }
 
-const MAX_ENTRIES = 5;
-const DISPLAY_DURATION_MS = 6000;
-const STAGGER_STEP_MS = 100;
-/** Window within which consecutive events are considered simultaneous */
-const BATCH_RESET_MS = 150;
-
 const client = useClient();
 const isInGame = useIsInGame();
+const { config: overlayConfig } = useOverlayConfig();
 
 const entries = ref<KillEntry[]>([]);
 let nextId = 0;
@@ -28,7 +24,7 @@ function addEntry(entry: KillEntry) {
     entries.value.push(entry);
 
     // Trim oldest entries beyond the cap, clearing their timers
-    while (entries.value.length > MAX_ENTRIES) {
+    while (entries.value.length > overlayConfig.value.killFeed.maxEntries) {
         const removed = entries.value.shift()!;
         const t = timers.get(removed.id);
         if (t !== undefined) {
@@ -42,7 +38,7 @@ function addEntry(entry: KillEntry) {
         const idx = entries.value.findIndex((e) => e.id === entry.id);
         if (idx > -1) entries.value.splice(idx, 1);
         timers.delete(entry.id);
-    }, DISPLAY_DURATION_MS) as unknown as number;
+    }, overlayConfig.value.killFeed.displayDurationMs) as unknown as number;
 
     timers.set(entry.id, timer);
 }
@@ -51,8 +47,8 @@ const unsub = client.onIngameEvents({
     onKillFeedEvent(event: killFeedEvent) {
         // Stagger simultaneous events by delaying their insertion into the list
         clearTimeout(batchResetTimer);
-        batchResetTimer = setTimeout(() => { batchCount = 0; }, BATCH_RESET_MS) as unknown as number;
-        const delay = batchCount * STAGGER_STEP_MS;
+        batchResetTimer = setTimeout(() => { batchCount = 0; }, overlayConfig.value.killFeed.batchResetMs) as unknown as number;
+        const delay = batchCount * overlayConfig.value.killFeed.staggerStepMs;
         batchCount++;
 
         const entry: KillEntry = { ...event, id: nextId++ };

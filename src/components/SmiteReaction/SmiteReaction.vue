@@ -4,11 +4,13 @@ import logoUrl from '@/assets/leaguebroadcast-logo_text-color-bright_outline.png
 import type { smiteReactionResult } from '@bluebottle_gg/league-broadcast-client';
 import { useClient } from '@/client';
 import { useIngameSelector } from '@/composables/useIngame';
+import { useOverlayConfig } from '@/composables/useOverlayConfig';
 
 const _logoPreload = new window.Image()
 _logoPreload.src = logoUrl
 
 const client = useClient();
+const { config: overlayConfig } = useOverlayConfig();
 const smite = ref<smiteReactionResult | undefined>(undefined)
 const unsub = client.onIngameEvents({
     /* TODO: listen for smite events here */
@@ -23,17 +25,18 @@ function formatReactionTime(seconds: number): string {
 
 function reactionColor(seconds: number): string {
     if (seconds < 0) return '#E84057'
-    if (seconds <= 0.15) return '#4CAF50'
-    if (seconds <= 0.4) return '#FFC107'
+    if (seconds <= overlayConfig.value.smiteReaction.greatThresholdSeconds) return '#4CAF50'
+    if (seconds <= overlayConfig.value.smiteReaction.averageThresholdSeconds) return '#FFC107'
     return '#E84057'
 }
 
 function reactionLabel(seconds: number): string {
-    if (seconds < 0) return 'EARLY'
-    if (seconds <= 0.05) return 'PERFECT'
-    if (seconds <= 0.15) return 'GREAT'
-    if (seconds <= 0.4) return 'AVERAGE'
-    return 'SLOW'
+    const labels = overlayConfig.value.text.smiteReaction
+    if (seconds < 0) return labels.early
+    if (seconds <= overlayConfig.value.smiteReaction.perfectThresholdSeconds) return labels.perfect
+    if (seconds <= overlayConfig.value.smiteReaction.greatThresholdSeconds) return labels.great
+    if (seconds <= overlayConfig.value.smiteReaction.averageThresholdSeconds) return labels.average
+    return labels.slow
 }
 
 // Animated reaction time: counts up from 0, drives color, label, and ring fill
@@ -120,7 +123,7 @@ const ringGradient = computed(() => {
                     <div class="flex flex-col gap-0.5">
                         <span class="smite-title leading-none"
                             style="font-family: Arial; font-weight: 700; font-size: 12px; text-align: left; color: rgba(255,255,255,0.85);">
-                            SMITE REACTION
+                            {{ overlayConfig.text.smiteReaction.title }}
                         </span>
                         <span class="smite-time tabular-nums leading-none pt-1"
                             :style="{ fontFamily: 'Arial', fontWeight: '700', fontSize: '24px', textAlign: 'left', color: reactionColor(animatedReactionTime) }">
@@ -143,7 +146,7 @@ const ringGradient = computed(() => {
                                 opacity: showSecured ? 1 : 0,
                                 transition: 'opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
                             }">
-                                {{ smite.wasKillingBlow ? 'SECURED' : 'MISSED' }}
+                                {{ smite.wasKillingBlow ? overlayConfig.text.smiteReaction.secured : overlayConfig.text.smiteReaction.missed }}
                             </span>
                         </div>
                         <div class="smite-player flex items-center gap-3 mt-1">
@@ -160,7 +163,7 @@ const ringGradient = computed(() => {
                 <div class="smite-sponsor flex flex-row justify-end pb-2">
                     <p class="text-white font-bold pr-2"
                         style="font-family: Arial; font-weight: 700; font-size: 8px; text-align: right; color: #ffffff; line-height: 20px;">
-                        POWERED BY</p>
+                        {{ overlayConfig.text.smiteReaction.poweredBy }}</p>
                     <img :src="logoUrl" alt="LeagueBroadcast" style="height: 20px;" />
                 </div>
             </div>

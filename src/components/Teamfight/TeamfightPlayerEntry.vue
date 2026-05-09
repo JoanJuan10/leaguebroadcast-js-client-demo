@@ -1,25 +1,412 @@
 <script setup lang="ts">
 import { useClient } from "@/client";
 import ProgressBar from "@/components/PlayerScoreboard/ProgressBar.vue";
-import { ResourceType, SpellSlotIndex, type damageGraphEntry, getRemaining } from "@bluebottle_gg/league-broadcast-client";
+import {
+    ResourceType,
+    SpellSlotIndex,
+    Team,
+    getRemaining,
+    type damageGraphEntry,
+    type ingameScoreboardBottomPlayerData,
+    type itemWithAsset,
+} from "@bluebottle_gg/league-broadcast-client";
 import SpellWithCooldown from "../PlayerScoreboard/SpellWithCooldown.vue";
 import { computed } from "vue";
 import { useIngameSelector } from "@/composables/useIngame";
 import ItemWithCooldown from "../PlayerScoreboard/ItemWithCooldown.vue";
 import FadeTransition from "@/transitions/FadeTransition.vue";
+import type { LiveClientItem, LiveClientPlayer } from "./liveClientTypes";
+import { useOverlayConfig } from "@/composables/useOverlayConfig";
 
 const props = withDefaults(defineProps<{
     mirror?: boolean;
     data?: damageGraphEntry;
+    liveClientPlayers?: LiveClientPlayer[];
+    liveClientPlayerFallback?: LiveClientPlayer;
+    scoreboardPlayerFallback?: ingameScoreboardBottomPlayerData;
 }>(), {
     mirror: false,
-    data: undefined
+    data: undefined,
+    liveClientPlayers: () => [],
+    liveClientPlayerFallback: undefined,
+    scoreboardPlayerFallback: undefined,
 });
 
 const client = useClient();
 const gameTime = useIngameSelector((s) => s.gameData.gameTime);
+const gameVersion = useIngameSelector((s) => s.gameData.gameVersion);
+const scoreboardBottom = useIngameSelector((s) => s.gameData.scoreboardBottom);
+const { config: overlayConfig } = useOverlayConfig();
+
+const TEAMFIGHT_ROLE_INDEX = new Map([
+    ["top", 0],
+    ["toplane", 0],
+    ["jungle", 1],
+    ["jgl", 1],
+    ["middle", 2],
+    ["mid", 2],
+    ["midlane", 2],
+    ["bottom", 3],
+    ["bot", 3],
+    ["botlane", 3],
+    ["adc", 3],
+    ["carry", 3],
+    ["utility", 4],
+    ["support", 4],
+    ["sup", 4],
+]);
+
+const teamfightImportantItemIds = computed(() => new Set(overlayConfig.value.teamfight.importantItemIds));
+const teamfightExcludedItemIds = computed(() => new Set(overlayConfig.value.teamfight.excludedItemIds));
+const teamfightItemPriority = computed(
+    () => new Map(Object.entries(overlayConfig.value.teamfight.itemPriority).map(([id, priority]) => [Number(id), priority])),
+);
+const teamfightImportantItemNamePattern = computed(() =>
+    getSafeRegExp(overlayConfig.value.teamfight.importantItemNamePattern, "i"),
+);
 
 const respawnRemaining = computed(() => getRemaining(props.data?.respawnAt, gameTime.value));
+
+const scoreboardPlayer = computed(() => {
+    if (!props.data) return undefined;
+
+    const preferredPlayers = getScoreboardPlayersForEntry(props.data);
+    const preferredMatch = preferredPlayers.find((player) => matchesScoreboardPlayer(player, props.data!));
+    if (preferredMatch) return preferredMatch;
+
+    const roleMatch = getScoreboardPlayerByRole(preferredPlayers, props.data);
+    if (roleMatch) return roleMatch;
+
+    if (props.scoreboardPlayerFallback) return props.scoreboardPlayerFallback;
+
+    for (const team of scoreboardBottom.value?.teams ?? []) {
+        const fallbackMatch = team.players?.find((player) => matchesScoreboardPlayer(player, props.data!));
+        if (fallbackMatch) return fallbackMatch;
+    }
+
+    return undefined;
+});
+
+const liveClientPlayer = computed(() => {
+    if (!props.data) return undefined;
+
+    const preferredPlayers = getLiveClientPlayersForEntry(props.data);
+    const preferredMatch = preferredPlayers.find((player) => matchesLiveClientPlayer(player, props.data!));
+    if (preferredMatch) return preferredMatch;
+
+    const roleMatch = getLiveClientPlayerByRole(preferredPlayers, props.data);
+    if (roleMatch) return roleMatch;
+
+    return props.liveClientPlayers.find((player) => matchesLiveClientPlayer(player, props.data!)) ??
+        props.liveClientPlayerFallback;
+});
+
+const teamfightItems = computed(() => {
+    return mergeTeamfightItems(
+        [
+            ...getImportantInventoryItems(scoreboardPlayer.value),
+            ...getImportantLiveClientItems(liveClientPlayer.value, scoreboardPlayer.value),
+        ],
+        props.data?.activeItems ?? [],
+    );
+});
+
+function getScoreboardPlayersForEntry(entry: damageGraphEntry): ingameScoreboardBottomPlayerData[] {
+    if (entry.team !== Team.Order && entry.team !== Team.Chaos) return [];
+    return scoreboardBottom.value?.teams[entry.team - 1]?.players ?? [];
+}
+
+function getScoreboardPlayerByRole(
+    players: ingameScoreboardBottomPlayerData[],
+    entry: damageGraphEntry,
+) {
+    const roleIndex = getRoleIndex(entry.role);
+    if (roleIndex === undefined) return undefined;
+    return players[roleIndex];
+}
+
+function getLiveClientPlayersForEntry(entry: damageGraphEntry): LiveClientPlayer[] {
+    const expectedTeam = liveClientTeamForEntry(entry);
+    if (!expectedTeam) return props.liveClientPlayers;
+
+    return props.liveClientPlayers.filter((player) => normalizePlayerKey(player.team) === expectedTeam);
+}
+
+function getLiveClientPlayerByRole(players: LiveClientPlayer[], entry: damageGraphEntry) {
+    const roleIndex = getRoleIndex(entry.role);
+    if (roleIndex === undefined) return undefined;
+
+    return players.find((player) => getRoleIndex(player.position) === roleIndex);
+}
+
+function liveClientTeamForEntry(entry: damageGraphEntry): string | undefined {
+    if (entry.team === Team.Order) return "order";
+    if (entry.team === Team.Chaos) return "chaos";
+    return undefined;
+}
+
+function getRoleIndex(role?: string) {
+    return TEAMFIGHT_ROLE_INDEX.get(normalizePlayerKey(role));
+}
+
+function normalizePlayerKey(value?: string): string {
+    return value?.split("#")[0]?.trim().toLowerCase() ?? "";
+}
+
+function isSameChampion(player: ingameScoreboardBottomPlayerData, entry: damageGraphEntry): boolean {
+    return Boolean(
+        player.champion?.alias &&
+        entry.champion?.alias &&
+        normalizePlayerKey(player.champion.alias) === normalizePlayerKey(entry.champion.alias),
+    );
+}
+
+function isSameLiveClientChampion(player: LiveClientPlayer, entry: damageGraphEntry): boolean {
+    const entryAliases = [entry.champion?.alias, entry.champion?.name].map(normalizeChampionKey);
+    const liveAliases = [player.championName, player.rawChampionName].map(normalizeChampionKey);
+
+    return liveAliases.some((liveAlias) => liveAlias && entryAliases.includes(liveAlias));
+}
+
+function matchesLiveClientPlayer(player: LiveClientPlayer, entry: damageGraphEntry): boolean {
+    const liveNames = [
+        player.riotIdGameName,
+        player.summonerName,
+        player.riotId,
+    ].map(normalizePlayerKey);
+    const damageNames = [entry.name, entry.displayName].map(normalizePlayerKey);
+
+    return Boolean(
+        liveNames.some((liveName) => liveName && damageNames.includes(liveName)) ||
+        isSameLiveClientChampion(player, entry),
+    );
+}
+
+function matchesScoreboardPlayer(
+    player: ingameScoreboardBottomPlayerData,
+    entry: damageGraphEntry,
+): boolean {
+    const scoreboardName = normalizePlayerKey(player.name);
+    const scoreboardDisplayName = normalizePlayerKey(player.displayName);
+    const damageName = normalizePlayerKey(entry.name);
+    const damageDisplayName = normalizePlayerKey(entry.displayName);
+
+    return Boolean(
+        (scoreboardName && (scoreboardName === damageName || scoreboardName === damageDisplayName)) ||
+        (scoreboardDisplayName &&
+            (scoreboardDisplayName === damageName || scoreboardDisplayName === damageDisplayName)) ||
+        isSameChampion(player, entry),
+    );
+}
+
+function getImportantInventoryItems(player?: ingameScoreboardBottomPlayerData): itemWithAsset[] {
+    if (!player) return [];
+
+    return (player.items ?? []).filter(
+        (item): item is itemWithAsset =>
+            Boolean(item && getItemId(item) !== 0 && isImportantTeamfightItem(item)),
+    );
+}
+
+function getImportantLiveClientItems(
+    player?: LiveClientPlayer,
+    scoreboardPlayer?: ingameScoreboardBottomPlayerData,
+): itemWithAsset[] {
+    if (!player) return [];
+
+    return (player.items ?? [])
+        .filter(isImportantLiveClientItem)
+        .map((item) => toTeamfightItem(item, scoreboardPlayer))
+        .filter((item): item is itemWithAsset => Boolean(item));
+}
+
+function isImportantLiveClientItem(item: LiveClientItem): boolean {
+    const itemId = getLiveClientItemId(item);
+    if (itemId === 0) return false;
+    if (teamfightExcludedItemIds.value.has(itemId)) return false;
+    if (!isRegularInventorySlot(item.slot)) return false;
+    if (item.consumable === true) return false;
+
+    return teamfightImportantItemIds.value.has(itemId) || isImportantTeamfightItemName(item.displayName);
+}
+
+function isImportantTeamfightItem(item: itemWithAsset): boolean {
+    const itemId = getItemId(item);
+    if (teamfightExcludedItemIds.value.has(itemId)) return false;
+    if (!isRegularInventorySlot(item.slot)) return false;
+
+    return (
+        teamfightImportantItemIds.value.has(itemId) ||
+        isImportantTeamfightItemName(item.displayName)
+    );
+}
+
+function isImportantTeamfightItemName(name?: string): boolean {
+    return Boolean(name && teamfightImportantItemNamePattern.value.test(normalizeSearchText(name)));
+}
+
+function toTeamfightItem(
+    item: LiveClientItem,
+    player?: ingameScoreboardBottomPlayerData,
+): itemWithAsset | undefined {
+    const itemId = getLiveClientItemId(item);
+    if (itemId === 0) return undefined;
+
+    const playerItem = findPlayerItemById(player, itemId);
+    if (playerItem) {
+        return {
+            ...playerItem,
+            slot: finiteNumber(item.slot) ?? playerItem.slot,
+            displayName: item.displayName ?? playerItem.displayName,
+            cost: finiteNumber(item.price) ?? playerItem.cost,
+            count: finiteNumber(item.count) ?? playerItem.count,
+        };
+    }
+
+    const assetItem = findScoreboardAssetItemById(itemId);
+
+    return {
+        id: itemId,
+        slot: finiteNumber(item.slot) ?? 0,
+        displayName: item.displayName ?? assetItem?.displayName ?? `Item ${itemId}`,
+        assetUrl: assetItem?.assetUrl ?? getFallbackItemAssetUrl(itemId),
+        modifierUrl: assetItem?.modifierUrl,
+        cost: finiteNumber(item.price) ?? assetItem?.cost ?? 0,
+        count: finiteNumber(item.count) ?? 1,
+        combineCost: assetItem?.combineCost ?? 0,
+        stats: assetItem?.stats,
+        stacks: assetItem?.stacks ?? 0,
+        charges: assetItem?.charges ?? 0,
+    };
+}
+
+function mergeTeamfightItems(
+    inventoryItems: itemWithAsset[],
+    activeItems: itemWithAsset[],
+): itemWithAsset[] {
+    const merged: itemWithAsset[] = [];
+    const itemIndexById = new Map<number, number>();
+
+    for (const item of inventoryItems) {
+        const itemId = getItemId(item);
+        if (!item || itemId === 0 || itemIndexById.has(itemId) || !isImportantTeamfightItem(item)) continue;
+        itemIndexById.set(itemId, merged.length);
+        merged.push(item);
+    }
+
+    for (const item of activeItems) {
+        const itemId = getItemId(item);
+        if (!item || itemId === 0 || !isImportantTeamfightItem(item)) continue;
+
+        const existingIndex = itemIndexById.get(itemId);
+        if (existingIndex !== undefined) {
+            if (hasCooldownMetadata(item)) {
+                merged[existingIndex] = { ...merged[existingIndex], ...item };
+            }
+            continue;
+        }
+
+        itemIndexById.set(itemId, merged.length);
+        merged.push(item);
+    }
+
+    return sortTeamfightItems(merged);
+}
+
+function hasCooldownMetadata(item: itemWithAsset): boolean {
+    return item.readyAt !== undefined || item.maxCooldown !== undefined;
+}
+
+function getItemId(item: itemWithAsset): number {
+    const looseItem = item as itemWithAsset & {
+        itemID?: number | string;
+        itemId?: number | string;
+    };
+    return Number(looseItem.id ?? looseItem.itemID ?? looseItem.itemId) || 0;
+}
+
+function getLiveClientItemId(item: LiveClientItem): number {
+    return Number(item.id ?? item.itemID ?? item.itemId) || 0;
+}
+
+function isRegularInventorySlot(slot: LiveClientItem["slot"]): boolean {
+    const parsedSlot = finiteNumber(slot);
+    return parsedSlot !== undefined && parsedSlot >= 0 && parsedSlot < 6;
+}
+
+function findPlayerItemById(
+    player: ingameScoreboardBottomPlayerData | undefined,
+    itemId: number,
+): itemWithAsset | undefined {
+    return player?.items?.find((candidate) => getItemId(candidate) === itemId);
+}
+
+function findScoreboardAssetItemById(itemId: number): itemWithAsset | undefined {
+    for (const team of scoreboardBottom.value?.teams ?? []) {
+        for (const player of team.players ?? []) {
+            const item = player.items?.find((candidate) => getItemId(candidate) === itemId);
+            if (item) return item;
+        }
+    }
+
+    return undefined;
+}
+
+function sortTeamfightItems(items: itemWithAsset[]): itemWithAsset[] {
+    return [...items].sort((a, b) =>
+        getTeamfightItemPriority(a) - getTeamfightItemPriority(b) ||
+        getItemSlot(a) - getItemSlot(b) ||
+        getItemId(a) - getItemId(b)
+    );
+}
+
+function getTeamfightItemPriority(item: itemWithAsset): number {
+    const itemId = getItemId(item);
+    return teamfightItemPriority.value.get(itemId) ?? (hasCooldownMetadata(item) ? 50 : 100);
+}
+
+function getItemSlot(item: itemWithAsset): number {
+    return finiteNumber(item.slot) ?? 99;
+}
+
+function getFallbackItemAssetUrl(itemId: number): string {
+    const version = normalizeGameVersion(gameVersion.value);
+    if (version) {
+        return `https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${itemId}.png`;
+    }
+
+    return `https://ddragon.leagueoflegends.com/cdn/15.9.1/img/item/${itemId}.png`;
+}
+
+function normalizeGameVersion(version?: string): string | undefined {
+    const match = version?.match(/\d+\.\d+\.\d+/);
+    return match?.[0];
+}
+
+function normalizeChampionKey(value?: string): string {
+    return normalizePlayerKey(value).replace(/^game_character_displayname_/i, "").replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeSearchText(value: string): string {
+    return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function finiteNumber(value: unknown): number | undefined {
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getSafeRegExp(pattern: string, flags?: string): RegExp {
+    try {
+        return new RegExp(pattern, flags);
+    } catch {
+        return /$^/;
+    }
+}
+
+function getTeamfightItemKey(item: itemWithAsset): string {
+    return `${getItemId(item)}:${item.assetUrl ?? ""}:${item.slot ?? ""}`;
+}
 
 const spellD = computed(() => {
     if (!props.data || !props.data.abilities || !props.data.abilities[SpellSlotIndex.D]) return undefined;
@@ -126,9 +513,10 @@ const xpPct = computed(() => {
         </div>
 
         <!-- Items: all in one column -->
-        <div class="area-items flex flex-col">
-            <ItemWithCooldown v-for="(item, index) in data?.activeItems" :key="index" :item="item" class="item-slot "
-                :show-stacks="false" />
+        <div class="area-items">
+            <div v-for="item in teamfightItems" :key="getTeamfightItemKey(item)" class="teamfight-item-slot">
+                <ItemWithCooldown :item="item" :show-stacks="false" />
+            </div>
         </div>
     </div>
 
@@ -193,7 +581,13 @@ const xpPct = computed(() => {
 
 .area-items {
     grid-area: items;
-
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1px;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .spell-icon {
@@ -213,9 +607,26 @@ const xpPct = computed(() => {
 
 }
 
-.item-slot {
+.teamfight-item-slot {
+    flex: 1 1 0;
+    max-height: 33.333%;
     width: 100%;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.teamfight-item-slot :deep(.item-slot) {
+    height: 100%;
+    max-width: 100%;
     aspect-ratio: 1 / 1;
+}
+
+.teamfight-item-slot :deep(.item-slot-content),
+.teamfight-item-slot :deep(.item-slot-empty) {
+    width: 100%;
+    height: 100%;
 }
 
 .level-text {

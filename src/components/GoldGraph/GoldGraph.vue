@@ -4,13 +4,16 @@ import { useIngameSelector } from "../../composables/useIngame";
 import { useClient } from "@/client";
 import { handleImageError, handleImageLoad } from "@/utils/imageUtils";
 import SlideTransition from "@/transitions/SlideTransition.vue";
+import { useOverlayConfig } from "@/composables/useOverlayConfig";
 
 const client = useClient();
+const { config: overlayConfig } = useOverlayConfig();
 const scoreboard = useIngameSelector((s) => s.gameData.scoreboard);
 const blueTeam = computed(() => scoreboard.value?.teams[0]);
 const redTeam = computed(() => scoreboard.value?.teams[1]);
 
 const goldGraph = useIngameSelector((s) => s.gameData.goldGraph);
+const graphTitle = computed(() => overlayConfig.value.text.goldGraph.title);
 
 /**
  * Parse the gold data into a per-team gold-difference series suitable for SVG rendering.
@@ -353,7 +356,7 @@ const verticalLines = computed(() => {
         <div v-if="goldGraph" class="gold-graph-container">
             <div class="title-container">
                 <div class="-translate-y-10 flex flex-row justify-between w-full items-center">
-                    <span class="title-text">Gold Graph</span>
+                    <span class="title-text">{{ graphTitle }}</span>
                     <span class="title-arrow ml-auto">&#8250;</span>
                 </div>
             </div>

@@ -1,0 +1,19 @@
+{
+  "mode": "none",
+  "noneLayout": "compact",
+  "rotationMs": 10000,
+  "showDeadState": true,
+  "static": {
+    "left": {
+      "label": "RaprollTV",
+      "src": "https://vdo.ninja/?view=yj3PeFt",
+      "type": "iframe"
+    },
+    "right": {
+      "label": "Samu",
+      "src": "https://vdo.ninja/?view=yj3PeFt",
+      "type": "iframe"
+    }
+  },
+  "players": {}
+}

@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import Scoreboard from "@/components/Scoreboard/Scoreboard.vue";
 import GoldGraph from "@/components/GoldGraph/GoldGraph.vue";
+import DamageGraph from "@/components/DamageGraph/DamageGraph.vue";
 import ConnectionStatus from "./components/Debug/ConnectionStatus.vue";
 import EventLog from "./components/Debug/EventLog.vue";
 import PlayerScoreboard from "./components/PlayerScoreboard/PlayerScoreboard.vue";
@@ -15,15 +16,18 @@ import CompactTeamfight from "./components/Teamfight/CompactTeamfight.vue";
 import SmiteReaction from "./components/SmiteReaction/SmiteReaction.vue";
 import PlayerCameras from "./components/PlayerCameras/PlayerCameras.vue";
 import KillFeed from "./components/KillFeed/KillFeed.vue";
+import { usePlayerCameraConfig } from "./composables/usePlayerCameraConfig";
+import SideInfoPage from "./components/SideInfo/SideInfoPage.vue";
 
 const debugVisible = ref(true);
 const baronTimer = useIngameSelector((state) => state.gameData.baronPitTimer);
 const dragonTimer = useIngameSelector((state) => state.gameData.dragonPitTimer);
 const gameTime = useIngameSelector((state) => state.gameData.gameTime);
+const { expandBottomWhenCamerasHidden } = usePlayerCameraConfig();
 </script>
 
 <template>
-  <div class="overlay">
+  <div class="overlay" :class="{ 'overlay--cameras-none-expanded': expandBottomWhenCamerasHidden }">
 
     <!-- Core features available in all tiers -->
     <Scoreboard class="overlay-scoreboard" />
@@ -40,7 +44,9 @@ const gameTime = useIngameSelector((state) => state.gameData.gameTime);
     <SkinDisplay class="overlay-skindisplay" :team="Team.Chaos" mirror />
     <SmiteReaction class="overlay-smitereaction" />
     <KillFeed class="overlay-killfeed" />
+    <SideInfoPage class="overlay-sideinfo" />
     <PlayerCameras class="overlay-playercameras" />
+    <DamageGraph class="overlay-damagegraph" />
     <GoldGraph class="overlay-bottom" />
     <CompactTeamfight class="overlay-teamfight" />
 
@@ -93,6 +99,11 @@ body {
   position: relative;
   width: 1920px;
   height: 1080px;
+  --side-panel-width: 285px;
+  --player-camera-width: 178px;
+  --overlay-z-inhibitors: 90;
+  --overlay-z-bottom-graphs: 110;
+  --overlay-z-lframe-shell: 130;
 }
 
 .overlay-scoreboard {
@@ -105,9 +116,10 @@ body {
 .overlay-bottom {
   position: absolute;
   bottom: 0px;
-  left: 0x;
+  left: 0px;
   width: calc(1920px - 285px);
   height: 260px;
+  z-index: var(--overlay-z-bottom-graphs);
 }
 
 .overlay-playerscoreboard {
@@ -115,16 +127,25 @@ body {
   bottom: 0px;
   /* left: 285px;
   right: 285px; */
-  left: calc(285px + 176px);
-  right: calc(285px + 176px);
+  left: calc(var(--side-panel-width) + var(--player-camera-width));
+  right: calc(var(--side-panel-width) + var(--player-camera-width));
   height: 260px;
+}
+
+.overlay-damagegraph {
+  position: absolute;
+  bottom: 0px;
+  left: 0px;
+  width: calc(1920px - var(--side-panel-width));
+  height: 260px;
+  z-index: var(--overlay-z-bottom-graphs);
 }
 
 .overlay-playercameras {
   position: absolute;
   bottom: 0px;
-  left: 285px;
-  right: 285px;
+  left: var(--side-panel-width);
+  right: var(--side-panel-width);
   height: 260px;
 }
 
@@ -155,15 +176,28 @@ body {
 .overlay-teamfight {
   position: absolute;
   bottom: 0px;
-  left: calc(285px + 176px);
-  right: calc(285px + 176px);
+  left: calc(var(--side-panel-width) + var(--player-camera-width));
+  right: calc(var(--side-panel-width) + var(--player-camera-width));
   height: 260px;
+}
+
+.overlay--cameras-none-expanded .overlay-playerscoreboard,
+.overlay--cameras-none-expanded .overlay-teamfight {
+  left: var(--side-panel-width);
+  right: var(--side-panel-width);
 }
 
 .overlay-killfeed {
   position: absolute;
   top: 100px;
   right: 0px;
+}
+
+.overlay-sideinfo {
+  position: absolute;
+  top: 102px;
+  left: 0;
+  z-index: 120;
 }
 
 .debug-wrapper {

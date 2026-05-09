@@ -1,21 +1,26 @@
 <script setup lang="ts">
 import { useIngameSelector } from '@/composables/useIngame';
+import { usePlayerCameraConfig } from '@/composables/usePlayerCameraConfig';
 import { Team } from '@bluebottle_gg/league-broadcast-client';
+import { computed } from 'vue';
 import PlayerCamera from './PlayerCamera.vue';
 
 const scoreboard = useIngameSelector((s) => s.gameData.scoreboardBottom);
 const teamfight = useIngameSelector((s) => s.gameData.teamfightDamageOverview);
+const { camerasEnabled } = usePlayerCameraConfig();
+
+const showCameras = computed(() => camerasEnabled.value && Boolean(scoreboard.value || teamfight.value));
 </script>
 
 
 <template>
     <Transition name="slide-down">
 
-        <div v-if="scoreboard || teamfight" class="camera-container">
-            <PlayerCamera show :team="Team.Order" :scoreboard="scoreboard" :teamfight="teamfight"
+        <div v-if="showCameras" class="camera-container">
+            <PlayerCamera show side="left" :team="Team.Order" :scoreboard="scoreboard" :teamfight="teamfight"
                 class="border rounded-t-sm border-r-0.5 border-b-0 border-white/55" />
             <div></div>
-            <PlayerCamera show :team="Team.Chaos" :scoreboard="scoreboard" :teamfight="teamfight"
+            <PlayerCamera show side="right" :team="Team.Chaos" :scoreboard="scoreboard" :teamfight="teamfight"
                 class="border rounded-t-sm border-r-0.5 border-b-0 border-white/55" />
         </div>
     </Transition>
@@ -26,7 +31,7 @@ const teamfight = useIngameSelector((s) => s.gameData.teamfightDamageOverview);
 <style lang="css" scoped>
 .camera-container {
     display: grid;
-    grid-template-columns: 178px 1fr 178px;
+    grid-template-columns: var(--player-camera-width, 178px) 1fr var(--player-camera-width, 178px);
     grid-template-rows: 1fr;
 }
 

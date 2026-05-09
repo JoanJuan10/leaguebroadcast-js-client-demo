@@ -1,4 +1,4 @@
-import { ref, type Ref } from "vue";
+import { ref, unref, type Ref } from "vue";
 
 export interface PlayerNotification {
   type: "item-buy" | "level-up";
@@ -31,7 +31,7 @@ function slotKey(team: "Order" | "Chaos", index: number): SlotKey {
  * Creates a notification queue system for player events.
  * Each (team, row) pair processes one notification at a time.
  */
-export function useNotificationQueue(duration: number = DISPLAY_DURATION) {
+export function useNotificationQueue(duration: number | Ref<number> = DISPLAY_DURATION) {
   const queues = new Map<SlotKey, PlayerNotification[]>();
   const active: Ref<Map<SlotKey, PlayerNotification>> = ref(new Map());
   const visible: Ref<Set<SlotKey>> = ref(new Set());
@@ -84,7 +84,7 @@ export function useNotificationQueue(duration: number = DISPLAY_DURATION) {
         exiting.value = new Set(exiting.value);
         processNext(key);
       }, 400);
-    }, duration);
+    }, Math.max(0, unref(duration)));
   }
 
   /** Get the active notification for a specific team + row, or null. */

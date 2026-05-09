@@ -1,0 +1,17 @@
+{
+  "background": {
+    "type": "image",
+    "src": "/backgroundrojo.png",
+    "fit": "cover",
+    "position": "center",
+    "repeat": "no-repeat"
+  },
+  "inhibitors": {
+    "enabled": true,
+    "style": "bar",
+    "debug": false,
+    "liveClientFallback": true,
+    "liveClientUrl": "/riot-liveclient/liveclientdata/allgamedata",
+    "liveClientPollMs": 1000
+  }
+}
